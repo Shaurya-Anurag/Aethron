@@ -10,6 +10,7 @@ import json
 from .config import settings
 from .database import connect, rows
 from .agent import run_assessment
+from .scope import parse_scope
 from .intelligence import remediation_research
 
 _tasks: dict[str, asyncio.Task] = {}
@@ -59,7 +60,12 @@ async def _run_worker(assessment: dict):
                     ],
                 },
             ]
-            for host in demo_hosts:
+            # Demo fixtures must obey the same exact authorization boundary as live targets.
+            demo_scope = parse_scope(assessment["scope_text"])
+            authorized_demo_hosts = [
+                host for host in demo_hosts if demo_scope.allows(host["address"])
+            ]
+            for host in authorized_demo_hosts:
                 await emit("decision", "Planner: discover_services", f"Inspect explicitly scoped demo host {host['address']}.")
                 await save_host(host)
                 await emit("tool", f"Discovery complete · {host['address']}", f"State: up · Open TCP services: {len(host['ports'])}")
