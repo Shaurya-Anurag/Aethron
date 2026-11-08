@@ -6,6 +6,8 @@ AETHRON is an isolated-lab autonomous security assessment prototype built around
 ## What is implemented
 - Editorial, oxblood-themed assessment console (Bodoni Moda / Manrope / IBM Plex Mono / Cormorant Garamond).
 - FastAPI service with SQLite persistence for assessments, events, hosts, services, and findings.
+- Asynchronous in-process assessment worker with persisted lifecycle states, operator cancellation, event polling, and fail-closed recovery of interrupted runs.
+- JSON API for assessment detail, event stream polling, host inventory, health checks, cancellation, and report export.
 - Scope-file parser for IPv4 addresses, CIDRs, and explicit hostnames; every requested target is checked before execution.
 - Nmap TCP connect/service discovery adapter. No arbitrary shell tool, exploit payloads, credential attacks, or out-of-scope pivoting.
 - Agent loop that observes discovery output, asks Bifrost for a constrained next-step proposal, validates it against a fixed action schema, and executes only approved actions.
@@ -48,6 +50,17 @@ Example:
 lab-web.local
 ```
 A target must be present in the supplied scope file. A hostname is accepted only when explicitly listed; DNS resolution is not used to expand authorization.
+
+## Execution lifecycle
+`POST /api/assessments/{id}/run` accepts a run and returns immediately with HTTP 202. The console polls persisted events and assessment state. `POST /api/assessments/{id}/cancel` requests cancellation. This first worker is process-local: do not run multiple application workers or replicas yet. If the process restarts during a run, startup marks the assessment `needs_attention`; it never marks an interrupted assessment complete. A durable external queue and worker lease model are required before multi-process deployment.
+
+Useful endpoints:
+- `GET /api/health`
+- `GET /api/assessments/{id}`
+- `GET /api/assessments/{id}/events?after=0`
+- `GET /api/assessments/{id}/hosts`
+- `POST /api/assessments/{id}/cancel`
+- `GET /api/assessments/{id}/report`
 
 ## Current limitations (intentional)
 - Discovery uses Nmap TCP connect scans with service/version detection. UDP, OS fingerprinting, exploitation, credential testing, and lateral movement are not implemented.
