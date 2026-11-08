@@ -17,3 +17,63 @@ form.addEventListener('submit',async e=>{
 });
 document.getElementById('exportReport').addEventListener('click',()=>{if(!window.AETHRON_ACTIVE)return;window.open(`/api/assessments/${window.AETHRON_ACTIVE}/report`,'_blank')});
 const params=new URLSearchParams(location.search);if(params.has('new'))modal.classList.add('open');
+
+
+// Assessment console polling: render persisted execution events, never fabricated activity.
+(function startAssessmentPolling() {
+  const assessmentId = window.AETHRON_ACTIVE;
+  if (!assessmentId) return;
+  const timeline = document.querySelector(".timeline");
+  let lastEventId = 0;
+  let terminal = false;
+
+  async function refresh() {
+    if (terminal) return;
+    try {
+      const [detailResponse, eventsResponse] = await Promise.all([
+        fetch(`/api/assessments/${assessmentId}`),
+        fetch(`/api/assessments/${assessmentId}/events?after=${lastEventId}`)
+      ]);
+      if (!detailResponse.ok || !eventsResponse.ok) return;
+      const detail = await detailResponse.json();
+      const events = await eventsResponse.json();
+
+      if (timeline && events.length) {
+        const empty = timeline.querySelector(".empty-state");
+        if (empty) empty.remove();
+        for (const item of events) {
+          lastEventId = Math.max(lastEventId, item.id);
+          const article = document.createElement("div");
+          article.className = "event";
+          const dot = document.createElement("span");
+          dot.className = `event-dot ${item.kind}`;
+          const body = document.createElement("div");
+          const title = document.createElement("b");
+          title.textContent = item.title;
+          const description = document.createElement("p");
+          description.textContent = item.detail;
+          const timestamp = document.createElement("small");
+          timestamp.textContent = `${item.at.slice(11, 19)} UTC · ${item.kind.toUpperCase()}`;
+          body.append(title, description, timestamp);
+          article.append(dot, body);
+          timeline.append(article);
+        }
+        timeline.scrollTop = timeline.scrollHeight;
+      }
+
+      const statusText = document.querySelector(".status");
+      if (statusText && detail.assessment) {
+        statusText.lastChild.textContent = ` ${detail.assessment.status.replaceAll("_", " ").toUpperCase()}`;
+      }
+      if (detail.assessment && detail.assessment.status !== "running" && detail.assessment.status !== "ready") {
+        terminal = true;
+        window.location.reload();
+      }
+    } catch (error) {
+      // Temporary polling failures do not alter assessment state.
+    }
+  }
+
+  refresh();
+  window.setInterval(refresh, 1800);
+})();
